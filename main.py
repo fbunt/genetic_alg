@@ -64,20 +64,20 @@ def initialize_pop(N, ga_problem):
 def evaluate_fitness(population, problem):
     number_solutions = population[:, 0].size
     # initialize fitness function vector
-    fitness = np.zeros(number_solutions)
+    evaluated_fitness = np.zeros(number_solutions)
     # calculate fitness
-    fitness[:] = np.sum(np.multiply(problem.p, population[:, :]), axis=1)
-    return fitness
+    evaluated_fitness[:] = np.sum(np.multiply(problem.p, population[:, :]), axis=1)
+    return evaluated_fitness
 
 
-def binary_tournament_selection(population, fitness):
+def binary_tournament_selection(population, tournament_fitness):
     """
     This function performs a binary tournament selection from individuals randomly selected in the population
     Since this is a BINARY tournament selection we pick T = 2 meaning that we randomly select four members of the
     population and put them in sets T1 and T2. The best element in T1 becomes P1, and the best element in T2 becomes
     P2
     :param population:
-    :param fitness:
+    :param tournament_fitness:
     :return: parent_1, parent_2 are the ROW indices of the parents 1 and 2 in the population vectors
     """
     # T = 2 was chosen by the authors
@@ -89,9 +89,9 @@ def binary_tournament_selection(population, fitness):
     population_pool = np.delete(population_pool, T_1)
     T_2 = np.random.choice(population_pool, T, replace=False)
     # parent_1 is winner of T_1
-    parent_1 = T_1[np.argmax(fitness[T_1])]
+    parent_1 = T_1[np.argmax(tournament_fitness[T_1])]
     # parent_2 is winner of T_2
-    parent_2 = T_2[np.argmax(fitness[T_2])]
+    parent_2 = T_2[np.argmax(tournament_fitness[T_2])]
 
     return parent_1, parent_2
 
@@ -149,37 +149,38 @@ def repair(S, problem, operator):
     This function implements two different repair types to the enforce the resource constraints of the bags
     1) Implements Algorithm 1 the "fancy" repair operator
     2) Sets
-    :param C:
+    :param S:
     :param problem:
     :param operator:
     :return:
     """
+    # Initialize R
+    R = np.zeros(problem.knapsacks, dtype=int)
+    R[:] = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
+
     if operator == "normal":
-        R = np.zeros(problem.knapsacks, dtype=int)
-        R[:] = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
-        if (np.any(R) > np.any(problem.b)):
+        if np.any(R) > np.any(problem.b):
             S = np.zeros(S.size, dtype=int)
         return S
 
-    # initialize R_i
-       # R = np.zeros(problem.knapsacks, dtype=int)
-        #R[:] = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
-        #print(np.size(R), np.size(problem.b))
+    # This implements the fancy repair operation
+    if operator == "fancy":
+        pass
         # DROP phase
-        #for j in range(problem.items):
-         #   if (S[j] == 1) and (np.all(R) > np.all(problem.b)):
-          #      S[j] = 0
-           #     R[:] = R[:] - problem.r[:, j]
-            #    print("Dropped item ", j, " from ", S)
+        for j in range(problem.items):
+            if (S[j] == 1) and (np.all(R) > np.all(problem.b)):
+                S[j] = 0
+                R[:] = R[:] - problem.r[:, j]
 
 
 def find_ga(k, total_iterations, problem, repair_operator):
     """
     Function implements Algorithm 3: a GA for the MKP from the Chu and Beasley paper
-    :param repair_type:
     :param k:
     :param total_iterations:
     :param problem:
+    :param repair_operator:
+
     :return:
     """
     t = 0
@@ -194,7 +195,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
     fitness_record = np.zeros((total_iterations, 1))
     fitness_record[t, 0] = fitness[max_fitness_index]
     solution_record[t, :] = population[max_fitness_index]
-    print("So the best guess is ", solution_record[t,:], " with value ", fitness_record[t,0])
+    print("So the best guess is ", solution_record[t, :], " with value ", fitness_record[t, 0])
     t += 1
 
     # now we begin our iterations
@@ -202,7 +203,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
         # carry over the record book from the previous time step
         # update it with the child at the end of the while loop if appropriate
         fitness_record[t, 0] = fitness_record[t-1, 0]
-        solution_record[t, 0] = solution_record[t-1, 0]
+        solution_record[t, :] = solution_record[t-1, :]
         # select parents 1 and 2 {P_1, P_2} = phi(P(t)) where phi is our binary tournament selection
         parent_1, parent_2 = binary_tournament_selection(population, fitness)
         # Crossover C = omega(P_1, P_2) where omega is our uniform crossover operation
@@ -210,7 +211,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
         # Mutate C with our mutation operator
         C = mutate(C)
         # Make C feasible by applying the repair operator
-        C = repair(C, problem, repair_type)
+        C = repair(C, problem, repair_operator)
         # Make sure there are no duplicate children
         # while C in population:
         #    parent_1, parent_2 = binary_tournament_selection(population, fitness)
@@ -225,26 +226,28 @@ def find_ga(k, total_iterations, problem, repair_operator):
         if C_fitness > fitness[S_prime]:
             population[S_prime] = C
         # Check of C is the best solution
-        if C_fitness > fitness_record[t,0]:
+        if C_fitness > fitness_record[t, 0]:
             fitness_record[t, 0] = C_fitness
             solution_record[t, :] = C
         t += 1
 
     return fitness_record, solution_record
 
+
 if __name__ == '__main__':
     # Set parameters
     t_max = 1000
     pop_size = 10
-    items = 10
-    bags = 2
+    items = 25
+    bags = 3
     tightness_ratio = .1
     repair_type = "normal"
 
     problem_1 = Problem(items, bags, tightness_ratio)
-    fitness, solution = find_ga(pop_size, t_max, problem_1, repair_type)
-    print("And after ", t_max, " iterations our best guess is ", solution[999, :], " with value ", fitness[-1,0])
+    fitness_final, solution_final = find_ga(pop_size, t_max, problem_1, repair_type)
+    print("And after ", t_max, " iterations our best guess is ", solution_final[999, :],
+          " with value ", fitness_final[-1, 0])
 
-    plt.plot(fitness)
+    plt.plot(fitness_final)
     plt.ylabel('fitness')
     plt.show()
