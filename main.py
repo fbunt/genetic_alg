@@ -194,6 +194,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
     fitness_record = np.zeros((total_iterations, 1))
     fitness_record[t, 0] = fitness[max_fitness_index]
     solution_record[t, :] = population[max_fitness_index]
+    print("So the best guess is ", solution_record[t,:], " with value ", fitness_record[t,0])
     t += 1
 
     # now we begin our iterations
@@ -242,6 +243,7 @@ if __name__ == '__main__':
 
     problem_1 = Problem(items, bags, tightness_ratio)
     fitness, solution = find_ga(pop_size, t_max, problem_1, repair_type)
+    print("And after ", t_max, " iterations our best guess is ", solution[999, :], " with value ", fitness[-1,0])
 
     plt.plot(fitness)
     plt.ylabel('fitness')
