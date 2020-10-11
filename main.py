@@ -9,9 +9,12 @@ class Problem:
 
         Profits, weights, and bag limits each given by the Chu and Beasley paper
 
-        self.r is an m x n np array
-        self.p is a  1 x n np array
-        self.b is a  1 x m np array
+        If you call Problem(n, m, alpha) then it will create an example multi-dimension knapsack problem with n items,
+        m knapsacks, and a bag restraint proportional to the tolerance ratio, alpha.
+
+        self.r is an m x n np array representing the multi-dimensional restraints
+        self.p is a  1 x n np array representing the profit of each item
+        self.b is a  1 x m np array representing the total weight of each knapsack
     """
 
     def __init__(self, n, m, alpha):
@@ -61,13 +64,32 @@ def initialize_pop(N, ga_problem):
     return S
 
 
-def evaluate_fitness(population, problem):
+def evaluate_pop_fitness(population, problem):
+    """
+    This function evaluates population fitness as a function of p_j * x_j
+    where problem.p is the profit vector for item j
+    and population is a vector where each column j is a 0 or 1 representing if item j is present
+    :param population: population with k members with n items each
+    :param problem: contains profit vector problem.p
+    :return: fitness of each member of the population
+    """
+    # population has more than 1 solution
     number_solutions = population[:, 0].size
     # initialize fitness function vector
     evaluated_fitness = np.zeros(number_solutions)
     # calculate fitness
-    evaluated_fitness[:] = np.sum(np.multiply(problem.p, population[:, :]), axis=1)
+    evaluated_fitness[:] = np.sum(np.multiply(problem.p, population[:, :]), axis=1)  # axis=1 implies row-wise sum
     return evaluated_fitness
+
+
+def evaluate_child_fitness(child, problem):
+    """
+    This function evaluates the fitness of a single child solution
+    :param child: child solution to evaluate fitness
+    :param problem: profit array to calculate fitness
+    :return: evaluated_fitness: the fitness of the child
+    """
+    return np.sum(np.multiply(problem.p[:], child[:]))
 
 
 def binary_tournament_selection(population, tournament_fitness):
@@ -103,7 +125,7 @@ def uniform_crossover(parent_1, parent_2):
     from parent_1, if b = 1, then the ith bit of C is taken from parent_2
     :param parent_1:
     :param parent_2:
-    :return:
+    :return: C: the child of parent_1 and parent_2 where bits are randomly selected from parent_1 or parent_2
     """
     # initialize the child C
     C = np.zeros(parent_1.size, dtype=int)
@@ -144,6 +166,8 @@ def mutate(child):
         return child
 
 
+# TODO: implement fancy repair operator
+# TODO: finish docstring
 def repair(S, problem, operator):
     """
     This function implements two different repair types to the enforce the resource constraints of the bags
@@ -158,7 +182,7 @@ def repair(S, problem, operator):
     R = np.zeros(problem.knapsacks, dtype=int)
     R[:] = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
 
-    if operator == "normal":
+    if operator == "simple":
         if np.any(R) > np.any(problem.b):
             S = np.zeros(S.size, dtype=int)
         return S
@@ -172,22 +196,30 @@ def repair(S, problem, operator):
                 S[j] = 0
                 R[:] = R[:] - problem.r[:, j]
 
+    else:
+        raise Exception("repair operator must be either 'simple' or 'fancy'")
+
 
 def find_ga(k, total_iterations, problem, repair_operator):
     """
     Function implements Algorithm 3: a GA for the MKP from the Chu and Beasley paper
-    :param k:
-    :param total_iterations:
-    :param problem:
-    :param repair_operator:
+    :param k:   number of solutions to have in the population. Population size never changes, though less fit members
+                of the population can be replaced
+    :param total_iterations: maximum number of iterations to perform
+    :param problem: the problem to find a genetic algorithm solution for. Contains restraint matrix r, profit vector p,
+                    and knapsack total restraint vector b. Also has problem.n and problem.m for total number of
+                    items and knapsacks respectively
+    :param repair_operator: This can be one of two values: "simple" or "fancy"
 
-    :return:
+    :return:    returns two matrices, solution record and fitness record. The last row in each will be the final
+                solution and fitness found by the algorithm. The solution at time step i can be found in the ith
+                row ith the record
     """
     t = 0
     # Initialize population P(0) = {S_1, ..., S_N}, S_i in {0, 1}^n
     population = initialize_pop(k, problem)
     # Evaluate P(0) = {f(S_1), ..., f(S_N)}
-    fitness = evaluate_fitness(population, problem)
+    fitness = evaluate_pop_fitness(population, problem)
     # find S* in P(0) s.t. F(S*) > f(S) for all S in P(0).
     # i.e. find the best member of the population
     max_fitness_index = np.argmax(fitness)
@@ -202,25 +234,32 @@ def find_ga(k, total_iterations, problem, repair_operator):
     while t < total_iterations:
         # carry over the record book from the previous time step
         # update it with the child at the end of the while loop if appropriate
-        fitness_record[t, 0] = fitness_record[t-1, 0]
-        solution_record[t, :] = solution_record[t-1, :]
+        fitness_record[t, 0] = fitness_record[t - 1, 0]
+        solution_record[t, :] = solution_record[t - 1, :]
+
         # select parents 1 and 2 {P_1, P_2} = phi(P(t)) where phi is our binary tournament selection
         parent_1, parent_2 = binary_tournament_selection(population, fitness)
+
         # Crossover C = omega(P_1, P_2) where omega is our uniform crossover operation
         C = uniform_crossover(population[parent_1], population[parent_2])
+
         # Mutate C with our mutation operator
         C = mutate(C)
+
         # Make C feasible by applying the repair operator
         C = repair(C, problem, repair_operator)
+
         # Make sure there are no duplicate children
-        # while C in population:
-        #    parent_1, parent_2 = binary_tournament_selection(population, fitness)
-        #    C = uniform_crossover(population[parent_1], population[parent_2])
-        #    C = mutate(C)
-        #    C = repair(C, problem, repair_type)
+        # If C is already in the population - generate a new C
+        while C.tolist() in population.tolist():
+            parent_1, parent_2 = binary_tournament_selection(population, fitness)
+            C = uniform_crossover(population[parent_1], population[parent_2])
+            C = mutate(C)
+            C = repair(C, problem, repair_operator)
+
         # evaluate f(C)
-        C_fitness = np.sum(np.multiply(problem.p[:], C[:]))
-        # C_fitness = evaluate_fitness(C, problem)
+        C_fitness = evaluate_child_fitness(C, problem)
+
         # Find member of the population with the lowest fitness and replace it with C
         S_prime = np.argmin(fitness[:])
         if C_fitness > fitness[S_prime]:
@@ -234,6 +273,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
     return fitness_record, solution_record
 
 
+# TODO: Add comments
 if __name__ == '__main__':
     # Set parameters
     t_max = 1000
@@ -241,13 +281,12 @@ if __name__ == '__main__':
     items = 25
     bags = 3
     tightness_ratio = .1
-    repair_type = "normal"
 
     problem_1 = Problem(items, bags, tightness_ratio)
-    fitness_final, solution_final = find_ga(pop_size, t_max, problem_1, repair_type)
-    print("And after ", t_max, " iterations our best guess is ", solution_final[999, :],
-          " with value ", fitness_final[-1, 0])
+    fitness_final_naive, solution_final_naive = find_ga(pop_size, t_max, problem_1, "simple")
+    print("And after ", t_max, " iterations our best guess is ", solution_final_naive[t_max - 1, :],
+          " with value ", fitness_final_naive[-1, 0])
 
-    plt.plot(fitness_final)
+    plt.plot(fitness_final_naive)
     plt.ylabel('fitness')
     plt.show()
