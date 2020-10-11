@@ -49,7 +49,6 @@ def initialize_pop(N, ga_problem):
         # generate list T of all possible j = 1, ..., n items that can exist in S_k
         T = np.arange(number_of_items)
         np.random.shuffle(T)
-        print(T)
         # pop element j from T
         j, T = T[-1], T[:-1]
         for i in range(0, number_of_bags):
@@ -58,7 +57,6 @@ def initialize_pop(N, ga_problem):
                 S[k, j] = 1
                 R += ga_problem.r[i, j]
                 j, T = T[-1], T[:-1]
-                print(R, ga_problem.b[i], T)
 
     return S
 
@@ -219,7 +217,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
         #    C = mutate(C)
         #    C = repair(C, problem, repair_type)
         # evaluate f(C)
-        C_fitness = np.sum(np.multiply(problem.p, C[:]), axis=0)
+        C_fitness = np.sum(np.multiply(problem.p[:], C[:]))
         # C_fitness = evaluate_fitness(C, problem)
         # Find member of the population with the lowest fitness and replace it with C
         S_prime = np.argmin(fitness[:])
@@ -230,17 +228,16 @@ def find_ga(k, total_iterations, problem, repair_operator):
             fitness_record[t, 0] = C_fitness
             solution_record[t, :] = C
         t += 1
-        print(t)
 
     return fitness_record, solution_record
 
 if __name__ == '__main__':
     # Set parameters
-    t_max = 1
-    pop_size = 100
-    items = 100
-    bags = 3
-    tightness_ratio = .75
+    t_max = 1000
+    pop_size = 10
+    items = 10
+    bags = 2
+    tightness_ratio = .1
     repair_type = "normal"
 
     problem_1 = Problem(items, bags, tightness_ratio)
