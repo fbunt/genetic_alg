@@ -5,7 +5,6 @@ import pandas as pd
 import time
 
 
-
 class Problem:
     """
         A problem represents a m-dim knapsack problem with m knapsacks, each bound by constraint b_i for i = 1, ..., m
@@ -28,7 +27,7 @@ class Problem:
         self.r = np.random.randint(low=0, high=1000, size=(m, n))
         # Generate bag constraint b_i
         self.b = np.zeros(m)
-        self.b = alpha * np.multiply(np.sum(self.r, axis=1), 1/m)
+        self.b = alpha * np.sum(self.r, axis=1)
         self.b = self.b.astype(int)
         # Generate the profit for j = 1, ..., n items
         q = np.random.rand(1, n)
@@ -64,7 +63,6 @@ def initialize_pop(N, ga_problem):
                 S[k, j] = 1
                 R += ga_problem.r[i, j]
                 j, T = T[-1], T[:-1]
-
     return S
 
 
@@ -170,12 +168,11 @@ def mutate(child):
         return child
 
 
-def repair_preprocess(S, problem):
+def repair_preprocess(problem):
     """
     This function performs the repair operator preprocessing step as outlined in the paper. It sets the weights w to
     the dual variables of the linear programming problem min: p_j*x_j constrained by r_ij*x*j <= b_j
     then it calculates the utility of each
-    :param S:
     :param problem:
     :return: u - utility array of solution S (sorted)
              indices - the index map of the sorted u. so to see how u[i] corresponds to some S[j], j = indices[i]
@@ -200,53 +197,67 @@ def repair_preprocess(S, problem):
     denom = 0.0
     for i in range(2):
         denom += np.multiply(w[i], r[i, :])
+
     u = np.multiply(p, 1 / denom)
     indices = np.argsort(u)
-
     return indices
+
+
+def fancy_repair(S, R, problem):
+    """
+    This function implements Algorithm 1 from the Chu and Beasley paper
+    :param S: The solution to repair
+    :param R: The restraints on each bag for solution S
+    :param problem: the overall problem constraints
+    :return: S: the repaired solution
+    """
+    # preprocess the utility array
+    u = repair_preprocess(problem)
+    # DROP phase
+    for j in range(problem.items):
+        if S[u[0, j]] == 1:
+            for k in range(problem.knapsacks):
+                if R[k] > problem.b[k]:
+                    S[u[0, j]] = 0
+                    for i in range(problem.knapsacks):
+                        R[i] -= problem.r[i, j]
+    # ADD phase
+    for j in range(problem.items - 1, 0, -1):
+        if S[u[0, j]] == 0:
+            for k in range(problem.knapsacks):
+                if R[k] + problem.r[k, j] < problem.b[k]:
+                    S[u[0, j]] = 1
+                    for i in range(problem.knapsacks):
+                        R[i] += problem.r[i, j]
+    return S
+
 
 def repair(S, problem, operator):
     """
     This function implements two different repair types to the enforce the resource constraints of the bags
-    1) Implements Algorithm 1 the "fancy" repair operator
-    2) Sets
-    :param S:
-    :param problem:
-    :param operator:
-    :return:
+    1) Implements a simple algorithm that sets all the items of an infeasible solution to 0
+    2)
+    :param S: the solution to repair
+    :param problem: problem constraints
+    :param operator: "simple" or "fancy" depending on which algorithm you'd like to implement
+    :return: the repaired solution
     """
     # Initialize R
     R = np.zeros(problem.knapsacks, dtype=int)
     R[:] = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
 
     if operator == "simple":
-        if np.any(R) > np.any(problem.b):
-            S = np.zeros(S.size, dtype=int)
+        # if np.any(R[:]) > np.any(problem.b[:]):
+        for k in range(problem.knapsacks):
+            if R[k] > problem.b[k]:
+                # TODO: make this return very tiny values between 0 and 1 to avoid infinite loop
+                S = np.zeros(S.size, dtype=int)
         return S
 
     # This implements the fancy repair operation
-    print("C before repair: ", S)
     if operator == "fancy":
-        u = repair_preprocess(S, problem)
-        # DROP phase
-        for j in range(problem.items-1, 0, -1):
-            if S[u[0, j]] == 1:
-                for k in range(problem.knapsacks):
-                    if R[k] > problem.b[k]:
+        return fancy_repair(S, R, problem)
 
-                        S[u[0, j]] = 0
-                        for i in range(problem.knapsacks):
-                            R[i] -= problem.r[i, j]
-        # ADD phase
-        for j in range(problem.items):
-            if S[u[0, j]] == 0:
-                for k in range(problem.knapsacks):
-                    if R[k] + problem.r[k, j] < problem.b[k]:
-                        S[u[0, j]] = 1
-                        for i in range(problem.knapsacks):
-                            R[i] += problem.r[i, j]
-        print("C after repair: ", S)
-        return S
     else:
         raise Exception("repair operator must be either 'simple' or 'fancy'")
 
@@ -331,11 +342,11 @@ def find_ga(k, total_iterations, problem, repair_operator):
 
 if __name__ == '__main__':
     # Set parameters
-    t_max = 10
-    pop_size = 10
-    items = 10
-    bags = 2
-    tightness_ratio = .1
+    t_max = 100
+    pop_size = 100
+    items = 300
+    bags = 10
+    tightness_ratio = .05
 
     # Generate the problem
     problem_1 = Problem(items, bags, tightness_ratio)
@@ -345,27 +356,29 @@ if __name__ == '__main__':
     fitness_final_naive, solution_final_naive, time_naive = find_ga(pop_size, t_max, problem_1, "simple")
     print("simple solution done")
     print("simple version took ", np.sum(time_naive[:, 0]), " seconds to compute ", t_max, " iterations")
+    print("first solution had fitness ", fitness_final_naive[0, 0])
+    print("found solution with fitness ", fitness_final_naive[t_max-1, 0])
+    print()
 
     # perform the GA with the fancy repair operator
     print("starting work on fancy GA")
     fitness_final_fancy, solution_final_fancy, time_fancy = find_ga(pop_size, t_max, problem_1, "fancy")
     print("finished with the fancy GA")
     print("fancy version took ", np.sum(time_fancy[:, 0]), " seconds to compute ", t_max, " iterations")
-
+    print("first solution had fitness ", fitness_final_fancy[0, 0])
+    print("found solution with fitness ", fitness_final_fancy[t_max - 1, 0])
+    print()
 
     # plot the results
     df = pd.DataFrame({'x': range(t_max), 'naive GA': fitness_final_naive[:, 0],
                        'fancy GA': fitness_final_fancy[:, 0]})
     plt.style.use('seaborn-darkgrid')
     palette = plt.get_cmap('Set1')
-
     num = 0
     for column in df.drop('x', axis=1):
         num += 1
         plt.plot(df['x'], df[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
-
     plt.legend(loc=2, ncol=2)
-
     plt.xlabel('Iterations')
     plt.ylabel('Fitness')
     plt.show()
