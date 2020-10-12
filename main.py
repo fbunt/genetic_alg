@@ -28,14 +28,8 @@ class Problem:
         self.r = np.random.randint(low=0, high=1000, size=(m, n))
         # Generate bag constraint b_i
         self.b = np.zeros(m)
-        for i in range(m):
-            item_sum = 0
-            for j in range(n):
-                item_sum += self.r[i, j]
-            self.b[i] = alpha * item_sum
-
-        # self.b = alpha * np.sum(self.r, axis=1)
-        # self.b = self.b.astype(int)
+        self.b = alpha * np.sum(self.r, axis=1)
+        self.b = self.b.astype(int)
         # Generate the profit for j = 1, ..., n items
         q = np.random.rand(1, n)
         self.p = np.sum(np.multiply(self.r, 1 / m), axis=0) * q
