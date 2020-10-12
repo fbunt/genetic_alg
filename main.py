@@ -227,14 +227,15 @@ def repair(S, problem, operator):
        # This implements the fancy repair operation
     if operator == "fancy":
         u = repair_preprocess(S, problem)
-        for j in range(problem.items):
+        # DROP phase
+        for j in range(problem.items-1, 0, -1):
             if S[u[0, j]] == 1:
                 for k in range(problem.knapsacks):
                     if R[k] > problem.b[k]:
                         S[u[0, j]] = 0
                         for i in range(problem.knapsacks):
                             R[i] -= problem.r[i, j]
-
+        # ADD phase
         for j in range(problem.items):
             if S[u[0, j]] == 0:
                 for k in range(problem.knapsacks):
@@ -327,10 +328,10 @@ def find_ga(k, total_iterations, problem, repair_operator):
 
 if __name__ == '__main__':
     # Set parameters
-    t_max = 10000
+    t_max = 1000
     pop_size = 10
-    items = 100
-    bags = 5
+    items = 10
+    bags = 3
     tightness_ratio = .1
 
     # Generate the problem
