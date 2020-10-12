@@ -378,7 +378,7 @@ if __name__ == '__main__':
     for column in df.drop('x', axis=1):
         num += 1
         plt.plot(df['x'], df[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
-    plt.legend(loc=4, ncol=2)
+    plt.legend(loc=7, ncol=1, frameon=True)
     plt.xlabel('Iterations')
     plt.ylabel('Fitness')
     plt.show()
