@@ -27,7 +27,7 @@ class Problem:
         self.r = np.random.randint(low=0, high=1000, size=(m, n))
         # Generate bag constraint b_i
         self.b = np.zeros(m)
-        self.b = alpha * np.sum(self.r, axis=1)
+        self.b = alpha * (np.sum(self.r, axis=1) * (1 / m))
         self.b = self.b.astype(int)
         # Generate the profit for j = 1, ..., n items
         q = np.random.rand(1, n)
@@ -191,7 +191,7 @@ def repair_preprocess(problem):
     dual_A = -1.0 * np.transpose(A)
     dual_bound = np.zeros((b.size, 2))
     dual_bound[:, 1] = None
-    result = linprog(c=dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
+    result = linprog(c=-dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
     w = result.x
 
     denom = 0.0
@@ -342,11 +342,11 @@ def find_ga(k, total_iterations, problem, repair_operator):
 
 if __name__ == '__main__':
     # Set parameters
-    t_max = 100
-    pop_size = 100
-    items = 300
-    bags = 10
-    tightness_ratio = .05
+    t_max = 1000
+    pop_size = 20
+    items = 100
+    bags = 5
+    tightness_ratio = .75
 
     # Generate the problem
     problem_1 = Problem(items, bags, tightness_ratio)
@@ -378,7 +378,7 @@ if __name__ == '__main__':
     for column in df.drop('x', axis=1):
         num += 1
         plt.plot(df['x'], df[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
-    plt.legend(loc=2, ncol=2)
+    plt.legend(loc=4, ncol=2)
     plt.xlabel('Iterations')
     plt.ylabel('Fitness')
     plt.show()
