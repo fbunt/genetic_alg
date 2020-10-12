@@ -28,7 +28,7 @@ class Problem:
         self.r = np.random.randint(low=0, high=1000, size=(m, n))
         # Generate bag constraint b_i
         self.b = np.zeros(m)
-        self.b = alpha * np.sum(self.r, axis=1)
+        self.b = alpha * np.multiply(np.sum(self.r, axis=1), 1/m)
         self.b = self.b.astype(int)
         # Generate the profit for j = 1, ..., n items
         q = np.random.rand(1, n)
@@ -224,7 +224,8 @@ def repair(S, problem, operator):
             S = np.zeros(S.size, dtype=int)
         return S
 
-       # This implements the fancy repair operation
+    # This implements the fancy repair operation
+    print("C before repair: ", S)
     if operator == "fancy":
         u = repair_preprocess(S, problem)
         # DROP phase
@@ -232,6 +233,7 @@ def repair(S, problem, operator):
             if S[u[0, j]] == 1:
                 for k in range(problem.knapsacks):
                     if R[k] > problem.b[k]:
+
                         S[u[0, j]] = 0
                         for i in range(problem.knapsacks):
                             R[i] -= problem.r[i, j]
@@ -243,6 +245,7 @@ def repair(S, problem, operator):
                         S[u[0, j]] = 1
                         for i in range(problem.knapsacks):
                             R[i] += problem.r[i, j]
+        print("C after repair: ", S)
         return S
     else:
         raise Exception("repair operator must be either 'simple' or 'fancy'")
@@ -328,10 +331,10 @@ def find_ga(k, total_iterations, problem, repair_operator):
 
 if __name__ == '__main__':
     # Set parameters
-    t_max = 1000
+    t_max = 10
     pop_size = 10
     items = 10
-    bags = 3
+    bags = 2
     tightness_ratio = .1
 
     # Generate the problem
