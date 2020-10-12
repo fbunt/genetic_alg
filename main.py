@@ -1,5 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.optimize import linprog
+import pandas as pd
+import time
+
 
 
 class Problem:
@@ -24,8 +28,14 @@ class Problem:
         self.r = np.random.randint(low=0, high=1000, size=(m, n))
         # Generate bag constraint b_i
         self.b = np.zeros(m)
-        self.b = alpha * np.sum(self.r, axis=1)
-        self.b = self.b.astype(int)
+        for i in range(m):
+            item_sum = 0
+            for j in range(n):
+                item_sum += self.r[i, j]
+            self.b[i] = alpha * item_sum
+
+        # self.b = alpha * np.sum(self.r, axis=1)
+        # self.b = self.b.astype(int)
         # Generate the profit for j = 1, ..., n items
         q = np.random.rand(1, n)
         self.p = np.sum(np.multiply(self.r, 1 / m), axis=0) * q
@@ -166,8 +176,41 @@ def mutate(child):
         return child
 
 
-# TODO: implement fancy repair operator
-# TODO: finish docstring
+def repair_preprocess(S, problem):
+    """
+    This function performs the repair operator preprocessing step as outlined in the paper. It sets the weights w to
+    the dual variables of the linear programming problem min: p_j*x_j constrained by r_ij*x*j <= b_j
+    then it calculates the utility of each
+    :param S:
+    :param problem:
+    :return: u - utility array of solution S (sorted)
+             indices - the index map of the sorted u. so to see how u[i] corresponds to some S[j], j = indices[i]
+    """
+
+    b = problem.b
+    p = problem.p
+    r = problem.r
+
+    c = np.copy(p)  # need to multiply by -1 to convert from finding the largest positive finding smallest negative
+    # no need to modify b
+    A = np.copy(r)
+
+    dual_c = b
+    dual_b = -1.0 * c
+    dual_A = -1.0 * np.transpose(A)
+    dual_bound = np.zeros((b.size, 2))
+    dual_bound[:, 1] = None
+    result = linprog(c=dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
+    w = result.x
+
+    denom = 0.0
+    for i in range(2):
+        denom += np.multiply(w[i], r[i, :])
+    u = np.multiply(p, 1 / denom)
+    indices = np.argsort(u)
+
+    return indices
+
 def repair(S, problem, operator):
     """
     This function implements two different repair types to the enforce the resource constraints of the bags
@@ -187,15 +230,25 @@ def repair(S, problem, operator):
             S = np.zeros(S.size, dtype=int)
         return S
 
-    # This implements the fancy repair operation
+       # This implements the fancy repair operation
     if operator == "fancy":
-        pass
-        # DROP phase
+        u = repair_preprocess(S, problem)
         for j in range(problem.items):
-            if (S[j] == 1) and (np.all(R) > np.all(problem.b)):
-                S[j] = 0
-                R[:] = R[:] - problem.r[:, j]
+            if S[u[0, j]] == 1:
+                for k in range(problem.knapsacks):
+                    if R[k] > problem.b[k]:
+                        S[u[0, j]] = 0
+                        for i in range(problem.knapsacks):
+                            R[i] -= problem.r[i, j]
 
+        for j in range(problem.items):
+            if S[u[0, j]] == 0:
+                for k in range(problem.knapsacks):
+                    if R[k] + problem.r[k, j] < problem.b[k]:
+                        S[u[0, j]] = 1
+                        for i in range(problem.knapsacks):
+                            R[i] += problem.r[i, j]
+        return S
     else:
         raise Exception("repair operator must be either 'simple' or 'fancy'")
 
@@ -216,6 +269,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
                 row ith the record
     """
     t = 0
+    start = time.time()
     # Initialize population P(0) = {S_1, ..., S_N}, S_i in {0, 1}^n
     population = initialize_pop(k, problem)
     # Evaluate P(0) = {f(S_1), ..., f(S_N)}
@@ -225,13 +279,15 @@ def find_ga(k, total_iterations, problem, repair_operator):
     max_fitness_index = np.argmax(fitness)
     solution_record = np.zeros((total_iterations, problem.items))
     fitness_record = np.zeros((total_iterations, 1))
+    time_record = np.zeros((total_iterations, 1))
     fitness_record[t, 0] = fitness[max_fitness_index]
     solution_record[t, :] = population[max_fitness_index]
-    print("So the best guess is ", solution_record[t, :], " with value ", fitness_record[t, 0])
+    time_record[t, 0] = time.time() - start
     t += 1
 
     # now we begin our iterations
     while t < total_iterations:
+        start = time.time()
         # carry over the record book from the previous time step
         # update it with the child at the end of the while loop if appropriate
         fitness_record[t, 0] = fitness_record[t - 1, 0]
@@ -268,25 +324,50 @@ def find_ga(k, total_iterations, problem, repair_operator):
         if C_fitness > fitness_record[t, 0]:
             fitness_record[t, 0] = C_fitness
             solution_record[t, :] = C
+
+        time_record[t, 0] = time.time() - start
         t += 1
 
-    return fitness_record, solution_record
+    return fitness_record, solution_record, time_record
 
 
-# TODO: Add comments
 if __name__ == '__main__':
     # Set parameters
-    t_max = 1000
+    t_max = 10000
     pop_size = 10
-    items = 25
-    bags = 3
+    items = 100
+    bags = 5
     tightness_ratio = .1
 
+    # Generate the problem
     problem_1 = Problem(items, bags, tightness_ratio)
-    fitness_final_naive, solution_final_naive = find_ga(pop_size, t_max, problem_1, "simple")
-    print("And after ", t_max, " iterations our best guess is ", solution_final_naive[t_max - 1, :],
-          " with value ", fitness_final_naive[-1, 0])
 
-    plt.plot(fitness_final_naive)
-    plt.ylabel('fitness')
+    # perform the GA with the simple repair operator
+    print("starting work on simple GA")
+    fitness_final_naive, solution_final_naive, time_naive = find_ga(pop_size, t_max, problem_1, "simple")
+    print("simple solution done")
+    print("simple version took ", np.sum(time_naive[:, 0]), " seconds to compute ", t_max, " iterations")
+
+    # perform the GA with the fancy repair operator
+    print("starting work on fancy GA")
+    fitness_final_fancy, solution_final_fancy, time_fancy = find_ga(pop_size, t_max, problem_1, "fancy")
+    print("finished with the fancy GA")
+    print("fancy version took ", np.sum(time_fancy[:, 0]), " seconds to compute ", t_max, " iterations")
+
+
+    # plot the results
+    df = pd.DataFrame({'x': range(t_max), 'naive GA': fitness_final_naive[:, 0],
+                       'fancy GA': fitness_final_fancy[:, 0]})
+    plt.style.use('seaborn-darkgrid')
+    palette = plt.get_cmap('Set1')
+
+    num = 0
+    for column in df.drop('x', axis=1):
+        num += 1
+        plt.plot(df['x'], df[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
+
+    plt.legend(loc=2, ncol=2)
+
+    plt.xlabel('Iterations')
+    plt.ylabel('Fitness')
     plt.show()
