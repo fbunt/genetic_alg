@@ -222,7 +222,7 @@ def repair_preprocess(problem):
     indices = np.argsort(u)
     return indices
 
-
+# TODO: IMPLEMENT with NPified greater than and less than stuff
 def fancy_repair(S, R, problem):
     """
     This function implements Algorithm 1 from the Chu and Beasley paper
@@ -234,21 +234,42 @@ def fancy_repair(S, R, problem):
     # preprocess the utility array
     u = repair_preprocess(problem)
     # DROP phase
-    for j in range(problem.items):
+    # if any of those constraints are violated, drop the item with lowest utility until the restraints are met
+    j = 0
+    while np.greater(R, problem.b).any():   # this checks if any element in R is > than any element in b
         if S[u[0, j]] == 1:
-            for k in range(problem.knapsacks):
-                if R[k] > problem.b[k]:
-                    S[u[0, j]] = 0
-                    for i in range(problem.knapsacks):
-                        R[i] -= problem.r[i, j]
-    # ADD phase
+            S[u[0, j]] = 0
+            R[:] -= problem.r[:, j]
+        j -= 1
+    # ADD Phase
+    # check if we can add any items to the solution without violating any constraints
+    # items are considered in decreasing order of utility
     for j in range(problem.items - 1, 0, -1):
-        if S[u[0, j]] == 0:
-            for k in range(problem.knapsacks):
-                if R[k] + problem.r[k, j] <= problem.b[k]:
-                    S[u[0, j]] = 1
-                    for i in range(problem.knapsacks):
-                        R[i] += problem.r[i, j]
+        if S[u[0, j]] == 0 and np.less_equal((R + problem.r[:, j]), problem.b).all():
+            S[u[0, j]] = 1
+            R[:] += problem.r[:, j]
+
+    # for j in range(problem.items):
+    #     if S[u[0, j]] == 1:
+    #         for k in range(problem.knapsacks):
+    #             if R[k] > problem.b[k]:
+    #                 S[u[0, j]] = 0
+    #                 for i in range(problem.knapsacks):
+    #                     R[i] -= problem.r[i, j]
+    # # ADD phase
+    # for j in range(problem.items - 1, 0, -1):
+    #     if S[u[0, j]] == 0:
+    #         for k in range(problem.knapsacks):
+    #             if R[k] + problem.r[k, j] <= problem.b[k]:
+    #                 S[u[0, j]] = 1
+    #                 for i in range(problem.knapsacks):
+    #                     R[i] += problem.r[i, j]
+
+    # SANITY CHECK
+    for i in range(problem.knapsacks):
+        if R[i] > problem.b[i]:
+            print("PROBLEM: fancy alg has a solution with restraint: ", i)
+            print(R[i], " > ", problem.b[i])
     return S
 
 
