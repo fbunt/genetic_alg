@@ -183,24 +183,31 @@ def mutate(child):
         return child
 
 
-def repair_preprocess(problem):
+def simple_utility(problem):
     """
-    This function performs the repair operator preprocessing step as outlined in the paper. It sets the weights w to
+    generate simple utility function without any LP mumbo-jump where:
+    utility for item j given by u[j] = p[j] / sum(r[:, j]
+    :param problem: problem coefficients to use for utility calculation
+    :return: indices of the each item's utility in ASCENDING order
+    """
+    u = np.multiply(problem.p, (1 / np.sum(problem.r[:, :], axis=0)))  # axis=0 for column-wise sum
+    return np.argsort(u)
+
+
+def fancy_lp_pseudo_utility(problem):
+    """
+    This function performs the LP repair operator preprocessing step as outlined in the paper. It sets the weights w to
     the dual variables of the linear programming problem min: p_j*x_j constrained by r_ij*x*j <= b_j
     then it calculates the utility of each
     :param problem:
     :return: u - utility array of solution S (sorted)
              indices - the index map of the sorted u. so to see how u[i] corresponds to some S[j], j = indices[i]
     """
-
+    c = np.copy(problem.p)
     b = np.copy(problem.b)
-    p = np.copy(problem.p)
-    r = np.copy(problem.r)
+    A = np.copy(problem.r)
 
-    c = np.copy(p)  # need to multiply by -1 to convert from finding the largest positive finding smallest negative
-    # no need to modify b
-    A = np.copy(r)
-
+    # Get weights by solving for dual variables of LP problem
     dual_c = b
     dual_b = -1.0 * c
     dual_A = -1.0 * np.transpose(A)
@@ -208,14 +215,16 @@ def repair_preprocess(problem):
     dual_bound[:, 1] = None
     result = linprog(c=-dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
     w = result.x
+    print("Here's w: ")
+    print(w)
 
+    # calculate psuedo-utility function u
     denom = 0.0
-    for i in range(2):
-        denom += np.multiply(w[i], r[i, :])
+    for i in range(problem.knapsacks):
+        denom += np.multiply(w[i], problem.r[i, :])
 
-    u = np.multiply(p, 1 / denom)
-    indices = np.argsort(u)
-    return indices
+    u = np.multiply(problem.p, 1 / denom)
+    return np.argsort(u)
 
 
 def fancy_repair(S, R, problem, u):
@@ -232,7 +241,7 @@ def fancy_repair(S, R, problem, u):
     # if any of those constraints are violated, drop the item with lowest utility until the restraints are met
     # u is ordered in ASCENDING utility so go from left -> right of u
     j = 0
-    while np.greater(R[:], problem.b[:]).any():   # this checks if any element in R is > than any element in b
+    while np.greater(R[:], problem.b[:]).any():  # this checks if any element in R is > than any element in b
         if S[u[0, j]] == 1:
             S[u[0, j]] = 0
             R[:] -= problem.r[:, u[0, j]]
@@ -255,44 +264,64 @@ def fancy_repair(S, R, problem, u):
     return S
 
 
-def repair(S, problem, operator, u):
+def repair(S, problem, operator, utility):
     """
     This function implements two different repair types to the enforce the resource constraints of the bags
     1) Implements a simple algorithm that sets all the items of an infeasible solution to 0
     2)
-    :param u: the weighted utility indices
+    :param utility: the weighted utility indices
     :param S: the solution to repair
     :param problem: problem constraints
-    :param operator: "simple" or "fancy" depending on which algorithm you'd like to implement
+    :param operator: 0 for "simple" or 1 for "fancy" depending on which algorithm you'd like to implement
     :return: the repaired solution
     """
     # Initialize R
     R = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
 
     # this is the naive repair operator. It sets the solution to all 0s if it violates any constraints
-    if operator == "simple":
+    if operator == 0:
         if np.greater(R, problem.b).any():
             S = np.zeros(S.size, dtype=int)
         return S
 
     # This implements the fancy repair operation
-    if operator == "fancy":
-        return fancy_repair(S, R, problem, u)
+    if operator == 1:
+        return fancy_repair(S, R, problem, utility)
 
     else:
-        raise Exception("repair operator must be either 'simple' or 'fancy'")
+        raise Exception("repair operator must be either 0 for 'simple' or 1 for 'fancy'")
 
 
-def find_ga(k, total_iterations, problem, repair_operator):
+def find_utility(problem, utility_operator):
+    """
+    Find either the utility or the pseudo-utility for each item of a given problem
+    utility_operator 0 - simple utility just from problem coefficients
+    utility_operator 1 - fancy utility using from dual variables of LP solver
+    :param problem: problem coefficients to use
+    :param utility_operator: which utility function to call
+    :return: indices of utility for each item in ASCENDING order
+    """
+    if utility_operator == 0:
+        return simple_utility(problem)
+
+    if utility_operator == 1:
+        return fancy_lp_pseudo_utility(problem)
+    else:
+        raise Exception("Utility operator must be 0 for simple utility, or 1 for fancy pseudo-utility with LP stuff")
+
+
+def find_ga(total_iterations, problem, initial_population, repair_operator, utility_function):
     """
     Function implements Algorithm 3: a GA for the MKP from the Chu and Beasley paper
-    :param k:   number of solutions to have in the population. Population size never changes, though less fit members
-                of the population can be replaced
+    :param initial_population: initial population to begin evolution on
+    :param utility_function: 0 for a utility function calculated just from problem coefficients
+                             1 for the pseudo-utility function calculated from LP techniques
     :param total_iterations: maximum number of iterations to perform
     :param problem: the problem to find a genetic algorithm solution for. Contains restraint matrix r, profit vector p,
                     and knapsack total restraint vector b. Also has problem.n and problem.m for total number of
                     items and knapsacks respectively
-    :param repair_operator: This can be one of two values: "simple" or "fancy"
+    :param repair_operator: This can be one of two values: 0 for the simple repair operator
+                                                           1 for the utility function operator
 
     :return:    returns two matrices, solution record and fitness record. The last row in each will be the final
                 solution and fitness found by the algorithm. The solution at time step i can be found in the ith
@@ -301,15 +330,19 @@ def find_ga(k, total_iterations, problem, repair_operator):
     t = 0
     start = time.time()
     # Initialize population P(0) = {S_1, ..., S_N}, S_i in {0, 1}^n
-    population = initialize_pop(k, problem)
+    population = np.copy(initial_population)
+
     # Evaluate P(0) = {f(S_1), ..., f(S_N)}
     fitness = evaluate_pop_fitness(population, problem)
+
     # find the weights using LP solver for the fancy repair operator
-    u = repair_preprocess(problem)
+    u = find_utility(problem, utility_function)
+
     # find S* in P(0) s.t. F(S*) > f(S) for all S in P(0).
     # i.e. find the best member of the population
     max_fitness_index = np.argmax(fitness)
-    # Keep track of all of our solutions
+
+    # Keep track of all of our best solutions with their fitness over each iteration
     solution_record = np.zeros((total_iterations, problem.items))
     fitness_record = np.zeros((total_iterations, 1))
     time_record = np.zeros((total_iterations, 1))
@@ -376,45 +409,57 @@ def plot_results(data):
     for column in data.drop('x', axis=1):
         num += 1
         plt.plot(data['x'], data[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
-    plt.legend(loc=4, ncol=1, frameon=True)
+    plt.legend(loc='lower right', ncol=1, frameon=True, bbox_to_anchor=(1.05, 0.00), fancybox=True, shadow=True)
     plt.xlabel('Iterations')
     plt.ylabel('Fitness')
     plt.show()
 
 
 if __name__ == '__main__':
-
     # PROBLEM GENERATION PARAMETERS
-    items = 100
+    items = 250
     bags = 5
-    tightness_ratio = .75
+    tightness_ratio = .5
+
+    # GENETIC ALGORITHM PARAMETERS
+    t_max = 1000
+    pop_size = 10
 
     # Generate the problem
     problem_1 = Problem(items, bags, tightness_ratio)
 
-    # GENETIC ALGORITHM PARAMETERS
-    t_max = 10000
-    pop_size = 100
+    # Generate a population, and give the SAME initial population to all three genetic algorithms so that they
+    # each improve upon the same population
+    initial_pop = initialize_pop(pop_size, problem_1)
 
     # perform the GA with the simple repair operator
-    print("starting work on simple GA")
-    fitness_final_naive, solution_final_naive, time_naive = find_ga(pop_size, t_max, problem_1, "simple")
-    print("simple solution done")
-    print("simple version took ", np.sum(time_naive[:, 0]), " seconds to compute ", t_max, " iterations")
-    print("first solution had fitness ", fitness_final_naive[0, 0])
-    print("found solution with fitness ", fitness_final_naive[t_max-1, 0])
+    print("starting work on GA with simple repair")
+    naive_fitness, naive_solution, naive_time = find_ga(t_max, problem_1, initial_population=initial_pop,
+                                                        repair_operator=0, utility_function=0)
+    print("simple version took ", np.sum(naive_time[:, 0]), " seconds to compute ", t_max, " iterations")
+    print("first solution had fitness ", naive_fitness[0, 0])
+    print("found solution with fitness ", naive_fitness[t_max - 1, 0])
     print()
 
     # perform the GA with the fancy repair operator
-    print("starting work on fancy GA")
-    fitness_final_fancy, solution_final_fancy, time_fancy = find_ga(pop_size, t_max, problem_1, "fancy")
-    print("finished with the fancy GA")
-    print("fancy version took ", np.sum(time_fancy[:, 0]), " seconds to compute ", t_max, " iterations")
-    print("first solution had fitness ", fitness_final_fancy[0, 0])
-    print("found solution with fitness ", fitness_final_fancy[t_max - 1, 0])
+    print("starting work on GA with fancy repair and simple utility function")
+    fancy_fitness, fancy_solution, time_fancy = find_ga(t_max, problem_1, initial_population=initial_pop,
+                                                        repair_operator=1, utility_function=0)
+    print("fancy repair version took ", np.sum(time_fancy[:, 0]), " seconds to compute ", t_max, " iterations")
+    print("first solution had fitness ", fancy_fitness[0, 0])
+    print("found solution with fitness ", fancy_fitness[t_max - 1, 0])
+    print()
+
+    print("starting work on GA with fancy repair AND the linear programming psuedo-utility function")
+    fancy_fitness_LP, fancy_solution_LP, time_fancy_LP = find_ga(t_max, problem_1, initial_population=initial_pop,
+                                                                 repair_operator=1, utility_function=0)
+    print("fancy_LP version took ", np.sum(time_fancy_LP[:, 0]), " seconds to compute ", t_max, " iterations")
+    print("first solution had fitness ", fancy_fitness_LP[0, 0])
+    print("found solution with fitness ", fancy_fitness_LP[t_max - 1, 0])
     print()
 
     # plot the results
-    df = DataFrame({'x': range(t_max), 'naive GA': fitness_final_naive[:, 0],
-                       'fancy GA': fitness_final_fancy[:, 0]})
+    df = DataFrame({'x': range(t_max), 'naive GA': naive_fitness[:, 0],
+                    'fancy repair operator, coefficient utility': fancy_fitness[:, 0],
+                    'fancy repair operator, LP pseudo-utility': fancy_fitness_LP[:, 0]})
     plot_results(df)
