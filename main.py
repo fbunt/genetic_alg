@@ -46,9 +46,7 @@ def initialize_pop(N, ga_problem):
     :return: returns a population, pop, with N chromosomes each reflecting the selection of n items
     """
     # initialize the N x n population with everything set to 0
-    number_of_items = ga_problem.items
-    number_of_bags = ga_problem.knapsacks
-    S = np.zeros(shape=(N, number_of_items), dtype=int)
+    S = np.zeros(shape=(N, ga_problem.items), dtype=int)
 
     # Loop through each k = 1, ..., N possible solutions and randomly add item i to knapsack j,
     # UNLESS doing so violates the r_ij * x_j <= b_i condition
@@ -58,31 +56,27 @@ def initialize_pop(N, ga_problem):
         R[:] = np.sum(np.multiply(ga_problem.r[:, :], S[k, :]), axis=1)
 
         # generate list T of all possible j = 1, ..., n items that can exist in S_k
-        T = np.arange(number_of_items)
+        T = np.arange(ga_problem.items)
         np.random.shuffle(T)
+
         # Generate list P of all items that have been picked for solution k
         P = list()
+
         # pop element j from T
         j, T = T[-1], T[:-1]
+
         # For all the dimensions - add a random element UNLESS it violates the constraint for the current bag
-        # NOTE: the condition only checks the restraint for the current bag, but other bag constraints may be violated
-        for i in range(number_of_bags):
-            while R[i] + ga_problem.r[i, j] <= ga_problem.b[i]:
-                S[k, j] = 1
-                P.append(j)     # Add j to list of items that have been added
-                for b in range(number_of_bags):
-                    R[b] += ga_problem.r[b, j]
-                j, T = T[-1], T[:-1]
-        # Check all the bag constraints and make sure none are violated
-        # If a bag constraint is violated, remove the last item added to the solution and
-        # update all of the restraints on each bag
-        for i in range(number_of_bags):
-            if R[i] > ga_problem.b[i]:
-                while R[i] > ga_problem.b[i]:
-                    j = P.pop()     # take j from list of items that have already been added
-                    S[k, j] = 0
-                    for b in range(number_of_bags):
-                        R[b] -= ga_problem.r[b, j]
+        while S[k, j] == 0 and np.less_equal((R[:] + ga_problem.r[:, j]), ga_problem.b[:]).all():
+            S[k, j] = 1
+            P.append(j)
+            R[:] += ga_problem.r[:, j]
+            j, T = T[-1], T[:-1]
+
+        # SANITY CHECK
+        for i in range(ga_problem.knapsacks):
+            if np.greater(R[:], ga_problem.b[:]).any():
+                raise Exception("PROBLEM: fancy alg has a solution that violates a restraint")
+
     return S
 
 
@@ -211,7 +205,7 @@ def repair_preprocess(problem):
     dual_A = -1.0 * np.transpose(A)
     dual_bound = np.zeros((b.size, 2))
     dual_bound[:, 1] = None
-    result = linprog(c=-dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
+    result = linprog(c=dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
     w = result.x
 
     denom = 0.0
@@ -222,82 +216,74 @@ def repair_preprocess(problem):
     indices = np.argsort(u)
     return indices
 
-# TODO: IMPLEMENT with NPified greater than and less than stuff
-def fancy_repair(S, R, problem):
+
+def fancy_repair(S, R, problem, u):
     """
     This function implements Algorithm 1 from the Chu and Beasley paper
+    :param u: the weighted utility indices
     :param S: The solution to repair
     :param R: The restraints on each bag for solution S
     :param problem: the overall problem constraints
     :return: S: the repaired solution
     """
     # preprocess the utility array
-    u = repair_preprocess(problem)
+    # u = repair_preprocess(problem)
     # DROP phase
     # if any of those constraints are violated, drop the item with lowest utility until the restraints are met
-    j = 0
-    while np.greater(R, problem.b).any():   # this checks if any element in R is > than any element in b
-        if S[u[0, j]] == 1:
-            S[u[0, j]] = 0
+    j = problem.items-1
+    while np.greater(R[:], problem.b[:]).any():   # this checks if any element in R is > than any element in b
+        # print("restraint is ", R[:], " > ", problem.b[:], " with solution ", S)
+        if S[j] == 1:
+            # print("S[j] = 1 for j = ", j, " and solution, ", S)
+            S[j] = 0
+            # print("for j = ", j, " subtracting ", problem.r[:, j], " from ", R[:])
             R[:] -= problem.r[:, j]
+            # print("After change: restraint is now ", R[:], " ? ", problem.b[:], " with solution", S)
+        if j == 0:
+            pass
+            # print(S)
+            # print("Solution ", S, " is empty ", R[:], " ? ", problem.b[:])
         j -= 1
+
     # ADD Phase
     # check if we can add any items to the solution without violating any constraints
     # items are considered in decreasing order of utility
-    for j in range(problem.items - 1, 0, -1):
+    for j in range(problem.items):
         if S[u[0, j]] == 0 and np.less_equal((R + problem.r[:, j]), problem.b).all():
             S[u[0, j]] = 1
             R[:] += problem.r[:, j]
 
-    # for j in range(problem.items):
-    #     if S[u[0, j]] == 1:
-    #         for k in range(problem.knapsacks):
-    #             if R[k] > problem.b[k]:
-    #                 S[u[0, j]] = 0
-    #                 for i in range(problem.knapsacks):
-    #                     R[i] -= problem.r[i, j]
-    # # ADD phase
-    # for j in range(problem.items - 1, 0, -1):
-    #     if S[u[0, j]] == 0:
-    #         for k in range(problem.knapsacks):
-    #             if R[k] + problem.r[k, j] <= problem.b[k]:
-    #                 S[u[0, j]] = 1
-    #                 for i in range(problem.knapsacks):
-    #                     R[i] += problem.r[i, j]
-
     # SANITY CHECK
     for i in range(problem.knapsacks):
-        if R[i] > problem.b[i]:
-            print("PROBLEM: fancy alg has a solution with restraint: ", i)
-            print(R[i], " > ", problem.b[i])
+        if np.greater(R[:], problem.b[:]).any():
+            raise Exception("PROBLEM: fancy alg has a solution that violates a restraint")
+
     return S
 
 
-def repair(S, problem, operator):
+def repair(S, problem, operator, u):
     """
     This function implements two different repair types to the enforce the resource constraints of the bags
     1) Implements a simple algorithm that sets all the items of an infeasible solution to 0
     2)
+    :param u: the weighted utility indices
     :param S: the solution to repair
     :param problem: problem constraints
     :param operator: "simple" or "fancy" depending on which algorithm you'd like to implement
     :return: the repaired solution
     """
     # Initialize R
-    R = np.zeros(problem.knapsacks, dtype=int)
-    R[:] = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
+    R = np.sum(np.multiply(problem.r[:, :], S[:]), axis=1)
 
+    # this is the naive repair operator. It sets the solution to all 0s if it violates any constraints
     if operator == "simple":
-        # if np.any(R[:]) > np.any(problem.b[:]):
-        for k in range(problem.knapsacks):
-            if R[k] > problem.b[k]:
-                # TODO: make this return very tiny values between 0 and 1 to avoid infinite loop
-                S = np.zeros(S.size, dtype=int)
+        if np.greater(R, problem.b).any():
+            S = np.zeros(S.size, dtype=int)
         return S
 
     # This implements the fancy repair operation
     if operator == "fancy":
-        return fancy_repair(S, R, problem)
+        return fancy_repair(S, R, problem, u)
 
     else:
         raise Exception("repair operator must be either 'simple' or 'fancy'")
@@ -324,9 +310,12 @@ def find_ga(k, total_iterations, problem, repair_operator):
     population = initialize_pop(k, problem)
     # Evaluate P(0) = {f(S_1), ..., f(S_N)}
     fitness = evaluate_pop_fitness(population, problem)
+    # find the weights using LP solver for the fancy repair operator
+    u = repair_preprocess(problem)
     # find S* in P(0) s.t. F(S*) > f(S) for all S in P(0).
     # i.e. find the best member of the population
     max_fitness_index = np.argmax(fitness)
+    # Keep track of all of our solutions
     solution_record = np.zeros((total_iterations, problem.items))
     fitness_record = np.zeros((total_iterations, 1))
     time_record = np.zeros((total_iterations, 1))
@@ -353,7 +342,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
         C = mutate(C)
 
         # Make C feasible by applying the repair operator
-        C = repair(C, problem, repair_operator)
+        C = repair(C, problem, repair_operator, u)
 
         # Make sure there are no duplicate children
         # If C is already in the population - generate a new C
@@ -361,7 +350,7 @@ def find_ga(k, total_iterations, problem, repair_operator):
             parent_1, parent_2 = binary_tournament_selection(population, fitness)
             C = uniform_crossover(population[parent_1], population[parent_2])
             C = mutate(C)
-            C = repair(C, problem, repair_operator)
+            C = repair(C, problem, repair_operator, u)
 
         # evaluate f(C)
         C_fitness = evaluate_child_fitness(C, problem)
@@ -385,14 +374,14 @@ if __name__ == '__main__':
 
     # PROBLEM GENERATION PARAMETERS
     items = 100
-    bags = 5
+    bags = 2
     tightness_ratio = .25
 
     # Generate the problem
     problem_1 = Problem(items, bags, tightness_ratio)
 
     # GENETIC ALGORITHM PARAMETERS
-    t_max = 100
+    t_max = 1000
     pop_size = 10
 
     # perform the GA with the simple repair operator
@@ -422,7 +411,7 @@ if __name__ == '__main__':
     for column in df.drop('x', axis=1):
         num += 1
         plt.plot(df['x'], df[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
-    plt.legend(loc=7, ncol=1, frameon=True)
+    plt.legend(loc=4, ncol=1, frameon=True)
     plt.xlabel('Iterations')
     plt.ylabel('Fitness')
     plt.show()
