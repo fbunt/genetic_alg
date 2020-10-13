@@ -205,7 +205,7 @@ def repair_preprocess(problem):
     dual_A = -1.0 * np.transpose(A)
     dual_bound = np.zeros((b.size, 2))
     dual_bound[:, 1] = None
-    result = linprog(c=dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
+    result = linprog(c=-dual_c, A_ub=dual_A, b_ub=dual_b, bounds=dual_bound)
     w = result.x
 
     denom = 0.0
@@ -226,32 +226,25 @@ def fancy_repair(S, R, problem, u):
     :param problem: the overall problem constraints
     :return: S: the repaired solution
     """
-    # preprocess the utility array
-    # u = repair_preprocess(problem)
+
     # DROP phase
     # if any of those constraints are violated, drop the item with lowest utility until the restraints are met
-    j = problem.items-1
+    # u is ordered in ASCENDING utility so go from left -> right of u
+    j = 0
     while np.greater(R[:], problem.b[:]).any():   # this checks if any element in R is > than any element in b
-        # print("restraint is ", R[:], " > ", problem.b[:], " with solution ", S)
-        if S[j] == 1:
-            # print("S[j] = 1 for j = ", j, " and solution, ", S)
-            S[j] = 0
-            # print("for j = ", j, " subtracting ", problem.r[:, j], " from ", R[:])
-            R[:] -= problem.r[:, j]
-            # print("After change: restraint is now ", R[:], " ? ", problem.b[:], " with solution", S)
-        if j == 0:
-            pass
-            # print(S)
-            # print("Solution ", S, " is empty ", R[:], " ? ", problem.b[:])
-        j -= 1
+        if S[u[0, j]] == 1:
+            S[u[0, j]] = 0
+            R[:] -= problem.r[:, u[0, j]]
+        j += 1
 
     # ADD Phase
     # check if we can add any items to the solution without violating any constraints
     # items are considered in decreasing order of utility
-    for j in range(problem.items):
-        if S[u[0, j]] == 0 and np.less_equal((R + problem.r[:, j]), problem.b).all():
+    # u is ordered in ASCENDING utility so go from right -> left of u
+    for j in range(problem.items - 1, 0, -1):
+        if S[u[0, j]] == 0 and np.less_equal((R + problem.r[:, u[0, j]]), problem.b).all():
             S[u[0, j]] = 1
-            R[:] += problem.r[:, j]
+            R[:] += problem.r[:, u[0, j]]
 
     # SANITY CHECK
     for i in range(problem.knapsacks):
@@ -374,7 +367,7 @@ if __name__ == '__main__':
 
     # PROBLEM GENERATION PARAMETERS
     items = 100
-    bags = 2
+    bags = 5
     tightness_ratio = .25
 
     # Generate the problem
