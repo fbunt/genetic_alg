@@ -361,15 +361,18 @@ def find_ga(k, total_iterations, problem, repair_operator):
 
 
 if __name__ == '__main__':
-    # Set parameters
-    t_max = 1000
-    pop_size = 10
-    items = 300
-    bags = 50
-    tightness_ratio = .75
+
+    # PROBLEM GENERATION PARAMETERS
+    items = 100
+    bags = 5
+    tightness_ratio = .25
 
     # Generate the problem
     problem_1 = Problem(items, bags, tightness_ratio)
+
+    # GENETIC ALGORITHM PARAMETERS
+    t_max = 100
+    pop_size = 10
 
     # perform the GA with the simple repair operator
     print("starting work on simple GA")
