@@ -1,8 +1,9 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.optimize import linprog
-import pandas as pd
 import time
+
+import matplotlib.pyplot as plt
+import numpy as np
+from pandas import DataFrame
+from scipy.optimize import linprog
 
 
 class Problem:
@@ -192,9 +193,9 @@ def repair_preprocess(problem):
              indices - the index map of the sorted u. so to see how u[i] corresponds to some S[j], j = indices[i]
     """
 
-    b = problem.b
-    p = problem.p
-    r = problem.r
+    b = np.copy(problem.b)
+    p = np.copy(problem.p)
+    r = np.copy(problem.r)
 
     c = np.copy(p)  # need to multiply by -1 to convert from finding the largest positive finding smallest negative
     # no need to modify b
@@ -363,19 +364,37 @@ def find_ga(k, total_iterations, problem, repair_operator):
     return fitness_record, solution_record, time_record
 
 
+def plot_results(data):
+    """
+    Plot the results of the Genetic Algorithm
+    :param data: pandas df with the results
+    :return: void - just plots the results
+    """
+    plt.style.use('seaborn-darkgrid')
+    palette = plt.get_cmap('Set1')
+    num = 0
+    for column in data.drop('x', axis=1):
+        num += 1
+        plt.plot(data['x'], data[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
+    plt.legend(loc=4, ncol=1, frameon=True)
+    plt.xlabel('Iterations')
+    plt.ylabel('Fitness')
+    plt.show()
+
+
 if __name__ == '__main__':
 
     # PROBLEM GENERATION PARAMETERS
     items = 100
     bags = 5
-    tightness_ratio = .25
+    tightness_ratio = .75
 
     # Generate the problem
     problem_1 = Problem(items, bags, tightness_ratio)
 
     # GENETIC ALGORITHM PARAMETERS
-    t_max = 1000
-    pop_size = 10
+    t_max = 10000
+    pop_size = 100
 
     # perform the GA with the simple repair operator
     print("starting work on simple GA")
@@ -396,15 +415,6 @@ if __name__ == '__main__':
     print()
 
     # plot the results
-    df = pd.DataFrame({'x': range(t_max), 'naive GA': fitness_final_naive[:, 0],
+    df = DataFrame({'x': range(t_max), 'naive GA': fitness_final_naive[:, 0],
                        'fancy GA': fitness_final_fancy[:, 0]})
-    plt.style.use('seaborn-darkgrid')
-    palette = plt.get_cmap('Set1')
-    num = 0
-    for column in df.drop('x', axis=1):
-        num += 1
-        plt.plot(df['x'], df[column], marker='', color=palette(num), linewidth=1, alpha=0.9, label=column)
-    plt.legend(loc=4, ncol=1, frameon=True)
-    plt.xlabel('Iterations')
-    plt.ylabel('Fitness')
-    plt.show()
+    plot_results(df)
