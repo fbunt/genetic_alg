@@ -27,7 +27,7 @@ class Problem:
         self.r = np.random.randint(low=0, high=1000, size=(m, n))
         # Generate bag constraint b_i
         self.b = np.zeros(m)
-        self.b = alpha * (np.sum(self.r, axis=1) * (1 / m))
+        self.b = alpha * np.sum(self.r, axis=1)
         self.b = self.b.astype(int)
         # Generate the profit for j = 1, ..., n items
         q = np.random.rand(1, n)
@@ -49,20 +49,40 @@ def initialize_pop(N, ga_problem):
     number_of_items = ga_problem.items
     number_of_bags = ga_problem.knapsacks
     S = np.zeros(shape=(N, number_of_items), dtype=int)
+
     # Loop through each k = 1, ..., N possible solutions and randomly add item i to knapsack j,
     # UNLESS doing so violates the r_ij * x_j <= b_i condition
-    for k in range(0, N):
+    for k in range(N):
+        # initialize restraints on population k
+        R = np.zeros(ga_problem.knapsacks, dtype=int)
+        R[:] = np.sum(np.multiply(ga_problem.r[:, :], S[k, :]), axis=1)
+
         # generate list T of all possible j = 1, ..., n items that can exist in S_k
         T = np.arange(number_of_items)
         np.random.shuffle(T)
+        # Generate list P of all items that have been picked for solution k
+        P = list()
         # pop element j from T
         j, T = T[-1], T[:-1]
-        for i in range(0, number_of_bags):
-            R = 0
-            while R + ga_problem.r[i, j] <= ga_problem.b[i]:
+        # For all the dimensions - add a random element UNLESS it violates the constraint for the current bag
+        # NOTE: the condition only checks the restraint for the current bag, but other bag constraints may be violated
+        for i in range(number_of_bags):
+            while R[i] + ga_problem.r[i, j] <= ga_problem.b[i]:
                 S[k, j] = 1
-                R += ga_problem.r[i, j]
+                P.append(j)     # Add j to list of items that have been added
+                for b in range(number_of_bags):
+                    R[b] += ga_problem.r[b, j]
                 j, T = T[-1], T[:-1]
+        # Check all the bag constraints and make sure none are violated
+        # If a bag constraint is violated, remove the last item added to the solution and
+        # update all of the restraints on each bag
+        for i in range(number_of_bags):
+            if R[i] > ga_problem.b[i]:
+                while R[i] > ga_problem.b[i]:
+                    j = P.pop()     # take j from list of items that have already been added
+                    S[k, j] = 0
+                    for b in range(number_of_bags):
+                        R[b] -= ga_problem.r[b, j]
     return S
 
 
@@ -225,7 +245,7 @@ def fancy_repair(S, R, problem):
     for j in range(problem.items - 1, 0, -1):
         if S[u[0, j]] == 0:
             for k in range(problem.knapsacks):
-                if R[k] + problem.r[k, j] < problem.b[k]:
+                if R[k] + problem.r[k, j] <= problem.b[k]:
                     S[u[0, j]] = 1
                     for i in range(problem.knapsacks):
                         R[i] += problem.r[i, j]
@@ -343,9 +363,9 @@ def find_ga(k, total_iterations, problem, repair_operator):
 if __name__ == '__main__':
     # Set parameters
     t_max = 1000
-    pop_size = 20
-    items = 100
-    bags = 5
+    pop_size = 10
+    items = 300
+    bags = 50
     tightness_ratio = .75
 
     # Generate the problem
