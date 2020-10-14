@@ -144,19 +144,10 @@ def uniform_crossover(parent_1, parent_2):
     :param parent_2:
     :return: C: the child of parent_1 and parent_2 where bits are randomly selected from parent_1 or parent_2
     """
-    # initialize the child C
-    C = np.zeros(parent_1.size, dtype=int)
-
-    # loop through the bits of the parents
-    for i in range(parent_1.size):
-        b = np.random.randint(2, size=1)
-        # if b = 0 make the ith bit of C = ith bit of parent_1
-        if b == 0:
-            C[i] = parent_1[i]
-        # if b = 1 make the ith bit of C = ith bit of parent_2
-        else:
-            C[i] = parent_2[i]
-    return C
+    # Create array of random boolean values
+    parent_condition = np.random.randint(2, size=len(parent_1), dtype=bool)
+    # Use above array to sequentially select from the parents
+    return np.where(parent_condition, parent_1, parent_2)
 
 
 def mutate(child):
